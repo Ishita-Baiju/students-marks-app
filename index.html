@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Student Marks App</title>
+  <style>
+    :root { font-family: system-ui, Arial, sans-serif; }
+    body { margin: 0; background: #f7fafc; color: #1a202c; }
+    .container { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    h1 { margin: 0; font-size: 28px; }
+    .card { background: white; padding: 16px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.05); }
+    form { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+    label { font-size: 12px; opacity: .8; }
+    input, select, button { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 10px; box-sizing: border-box; }
+    button { cursor: pointer; border: none; background: #2563eb; color: white; font-weight: 600; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    .row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: center; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+    .muted { font-size: 12px; opacity: .7; }
+    table { width: 100%; border-collapse: collapse; background: white; overflow: hidden; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.05); }
+    th, td { padding: 12px; border-bottom: 1px solid #edf2f7; text-align: left; }
+    th { background: #f1f5f9; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    tbody tr:hover { background: #f8fafc; }
+    .right { text-align: right; }
+    .danger { background: #ef4444; }
+    .ghost { background: #e5e7eb; color: #111827; }
+    .pill { font-size: 12px; background: #e0e7ff; padding: 4px 8px; border-radius: 999px; }
+    footer { margin: 24px 0; text-align: center; font-size: 12px; opacity: .7; }
+    .hidden { display: none; }
+    @media (max-width: 900px) {
+      form, .row { grid-template-columns: 1fr 1fr; }
+      .desktop-only { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Student Marks App</h1>
+      <div>
+        <span id="authStatus" class="pill">Connecting…</span>
+      </div>
+    </header>
+
+    <p class="muted">Add marks and see them appear instantly. Data is stored in Google Firebase (Firestore) on the free tier.</p>
+
+    <div class="card" style="margin: 16px 0;">
+      <form id="marksForm">
+        <div>
+          <label>Roll No</label>
+          <input id="rollNo" placeholder="e.g. 12" required />
+        </div>
+        <div>
+          <label>Student Name</label>
+          <input id="name" placeholder="e.g. Aisha Verma" required />
+        </div>
+        <div>
+          <label>Class</label>
+          <input id="studentClass" placeholder="e.g. 8A" required />
+        </div>
+        <div>
+          <label>Subject</label>
+          <input id="subject" placeholder="e.g. Mathematics" required />
+        </div>
+        <div>
+          <label>Marks</label>
+          <input id="marks" type="number" min="0" max="100" placeholder="e.g. 86" required />
+        </div>
+        <div style="display:flex; gap:8px; align-items:end;">
+          <button id="addBtn" type="submit">Add Marks</button>
+          <button id="resetBtn" type="button" class="ghost">Reset</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="toolbar">
+      <input id="search" placeholder="Search by name or roll no" style="flex:1;" />
+      <select id="filterClass">
+        <option value="">All Classes</option>
+      </select>
+      <select id="filterSubject">
+        <option value="">All Subjects</option>
+      </select>
+      <button id="exportBtn" class="ghost">Export CSV</button>
+    </div>
+
+    <table id="marksTable">
+      <thead>
+        <tr>
+          <th>Roll No</th>
+          <th>Name</th>
+          <th class="desktop-only">Class</th>
+          <th>Subject</th>
+          <th class="right">Marks</th>
+          <th class="right">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <footer>
+      For learning/demo use. Add authentication before real deployment.
+    </footer>
+  </div>
+
+  <script type="module">
+    // Your Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyB6lJ0qAoiFY72MKtzcTFCdVBaOv5-vqtA",
+      authDomain: "student-marks-app-dc6c3.firebaseapp.com",
+      projectId: "student-marks-app-dc6c3",
+      storageBucket: "student-marks-app-dc6c3.firebasestorage.app",
+      messagingSenderId: "412370498316",
+      appId: "1:412370498316:web:3cd36ec52d5be3eb524f29",
+      measurementId: "G-EC3WCXXFS9"
+    };
+
+    // Firebase SDK imports
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+    // Init Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // Anonymous sign-in
+    const authStatus = document.getElementById('authStatus');
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        authStatus.textContent = 'Connected (anonymous)';
+      } else {
+        authStatus.textContent = 'Connecting…';
+      }
+    });
+    try { await signInAnonymously(auth); } catch (e) { console.error(e); authStatus.textContent = 'Auth error'; }
+
+    // UI references
+    const form = document.getElementById('marksForm');
+    const rollNo = document.getElementById('rollNo');
+    const nameEl = document.getElementById('name');
+    const studentClass = document.getElementById('studentClass');
+    const subject = document.getElementById('subject');
+    const marks = document.getElementById('marks');
+    const addBtn = document.getElementById('addBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const tbody = document.getElementById('tbody');
+    const search = document.getElementById('search');
+    const filterClass = document.getElementById('filterClass');
+    const filterSubject = document.getElementById('filterSubject');
+    const exportBtn = document.getElementById('exportBtn');
+
+    let rows = [];
+
+    function normalize(s){ return (s||'').toString().trim(); }
+
+    function render() {
+      const q = normalize(search.value).toLowerCase();
+      const fClass = normalize(filterClass.value).toLowerCase();
+      const fSubject = normalize(filterSubject.value).toLowerCase();
+
+      const filtered = rows.filter(r => {
+        const matchText = (r.name + ' ' + r.rollNo).toLowerCase();
+        const classOk = !fClass || (r.studentClass||'').toLowerCase() === fClass;
+        const subjectOk = !fSubject || (r.subject||'').toLowerCase() === fSubject;
+        const textOk = !q || matchText.includes(q);
+        return classOk && subjectOk && textOk;
+      });
+
+      tbody.innerHTML = '';
+      for (const r of filtered) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${r.rollNo}</td>
+          <td>${r.name}</td>
+          <td class="desktop-only">${r.studentClass||''}</td>
+          <td>${r.subject||''}</td>
+          <td class="right">${r.marks}</td>
+          <td class="right">
+            <button data-id="${r.id}" class="danger">Delete</button>
+          </td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function refreshFilters() {
+      const classes = [...new Set(rows.map(r => r.studentClass).filter(Boolean))].sort();
+      const subjects = [...new Set(rows.map(r => r.subject).filter(Boolean))].sort();
+
+      const cVal = filterClass.value; const sVal = filterSubject.value;
+      filterClass.innerHTML = '<option value="">All Classes</option>' + classes.map(c=>`<option value="${c}">${c}</option>`).join('');
+      filterSubject.innerHTML = '<option value="">All Subjects</option>' + subjects.map(s=>`<option value="${s}">${s}</option>`).join('');
+      if (classes.includes(cVal)) filterClass.value = cVal; else filterClass.value = '';
+      if (subjects.includes(sVal)) filterSubject.value = sVal; else filterSubject.value = '';
+    }
+
+    const marksCol = collection(db, 'marks');
+    onSnapshot(query(marksCol, orderBy('createdAt', 'desc')), (snap) => {
+      rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      refreshFilters();
+      render();
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const docData = {
+        rollNo: normalize(rollNo.value),
+        name: normalize(nameEl.value),
+        studentClass: normalize(studentClass.value),
+        subject: normalize(subject.value),
+        marks: Number(marks.value),
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.uid || null,
+      };
+
+      if (!docData.rollNo || !docData.name || !docData.studentClass || !docData.subject || isNaN(docData.marks)) {
+        alert('Please fill all fields with valid values.');
+        return;
+      }
+      if (docData.marks < 0 || docData.marks > 100) {
+        alert('Marks must be between 0 and 100.');
+        return;
+      }
+
+      addBtn.disabled = true;
+      try {
+        await addDoc(marksCol, docData);
+        form.reset();
+        rollNo.focus();
+      } catch (err) {
+        console.error(err);
+        alert('Error adding marks. Check console.');
+      } finally {
+        addBtn.disabled = false;
+      }
+    });
+
+    resetBtn.addEventListener('click', () => { form.reset(); rollNo.focus(); });
+
+    tbody.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button');
+      if (btn && btn.dataset.id) {
+        if (confirm('Delete this record?')) {
+          try {
+            await deleteDoc(doc(db, 'marks', btn.dataset.id));
+          } catch (err) {
+            console.error(err);
+            alert('Delete failed. Check console.');
+          }
+        }
+      }
+    });
+
+    [search, filterClass, filterSubject].forEach(el => el.addEventListener('input', render));
+
+    exportBtn.addEventListener('click', () => {
+      const headers = ['Roll No', 'Name', 'Class', 'Subject', 'Marks'];
+      const data = rows.map(r => [r.rollNo, r.name, r.studentClass||'', r.subject||'', r.marks]);
+      const csv = [headers.join(','), ...data.map(row => row.map(v => '"' + String(v).replaceAll('"','""') + '"').join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'marks.csv'; a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
