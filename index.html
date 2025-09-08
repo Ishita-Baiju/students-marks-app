@@ -119,7 +119,7 @@
 
     // Firebase SDK imports
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore, collection, addDoc, serverTimestamp, onSnapshot, query, orderBy, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, updateDoc, serverTimestamp, onSnapshot, query, orderBy, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
     // Init Firebase
@@ -154,6 +154,26 @@
     const exportBtn = document.getElementById('exportBtn');
 
     let rows = [];
+    let editId = null; // the Firestore doc ID being edited, if any
+  function enterEditMode(r){
+  editId = r.id;
+  rollNo.value = r.rollNo || '';
+  nameEl.value = r.name || '';
+  studentClass.value = r.studentClass || '';
+  subject.value = r.subject || '';
+  marks.value = (r.marks ?? '').toString();
+  addBtn.textContent = 'Update Marks';
+  resetBtn.textContent = 'Cancel Edit';
+  rollNo.focus();
+  }
+
+  function exitEditMode(){
+  editId = null;
+  form.reset();
+  addBtn.textContent = 'Add Marks';
+  resetBtn.textContent = 'Reset';
+  rollNo.focus();
+  }
 
     function normalize(s){ return (s||'').toString().trim(); }
 
@@ -179,9 +199,10 @@
           <td class="desktop-only">${r.studentClass||''}</td>
           <td>${r.subject||''}</td>
           <td class="right">${r.marks}</td>
-          <td class="right">
-            <button data-id="${r.id}" class="danger">Delete</button>
-          </td>`;
+          <td class="right" style="display:flex; gap:8px; justify-content:flex-end;">
+    <button data-action="edit" data-id="${r.id}" class="ghost">Edit</button>
+    <button data-action="delete" data-id="${r.id}" class="danger">Delete</button>
+  </td>;
         tbody.appendChild(tr);
       }
     }
@@ -215,6 +236,14 @@
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.uid || null,
       };
+      if (editId) {
+  await updateDoc(doc(db, 'marks', editId), { ...docData, updatedAt: serverTimestamp() });
+  exitEditMode();
+} else {
+  await addDoc(marksCol, { ...docData, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || null });
+  form.reset();
+  rollNo.focus();
+}
 
       if (!docData.rollNo || !docData.name || !docData.studentClass || !docData.subject || isNaN(docData.marks)) {
         alert('Please fill all fields with valid values.');
@@ -238,21 +267,29 @@
       }
     });
 
-    resetBtn.addEventListener('click', () => { form.reset(); rollNo.focus(); });
+    resetBtn.addEventListener('click', () => {
+  if (editId) exitEditMode();
+  else { form.reset(); rollNo.focus(); }
+});
+
 
     tbody.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button');
-      if (btn && btn.dataset.id) {
-        if (confirm('Delete this record?')) {
-          try {
-            await deleteDoc(doc(db, 'marks', btn.dataset.id));
-          } catch (err) {
-            console.error(err);
-            alert('Delete failed. Check console.');
-          }
-        }
-      }
-    });
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const action = btn.dataset.action;
+
+  if (action === 'delete') {
+    if (confirm('Delete this record?')) {
+      try { await deleteDoc(doc(db, 'marks', id)); }
+      catch (err) { console.error(err); alert('Delete failed. Check console.'); }
+    }
+  } else if (action === 'edit') {
+    const r = rows.find(x => x.id === id);
+    if (r) enterEditMode(r);
+  }
+});
+
 
     [search, filterClass, filterSubject].forEach(el => el.addEventListener('input', render));
 
